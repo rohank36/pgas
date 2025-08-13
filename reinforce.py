@@ -74,7 +74,7 @@ policy = Policy(in_dim,out_dim)
 #policy.to(device=device)
 
 max_iters = 1
-batch_size = 1
+batch_size = 2
 T = 15 # change to 500
 lr = 3e-4
 #agent = Agent(env,lr)
@@ -86,9 +86,7 @@ for trajectory in tqdm(range(max_iters)):
 
     batch_rews = []
     batch_acts = []
-    batch_done = np.array([])
-    batch_terminated = []
-    batch_truncated = []
+    batch_done = []
 
     for _ in tqdm(range(batch_size)):
         # start a trajectory worth T timesteps of data
@@ -118,19 +116,15 @@ for trajectory in tqdm(range(max_iters)):
         batch_rews.append(rews_buf)
         batch_acts.append(acts_buf)
         terminated_or_truncated_buf = np.logical_or(np.array(terminated_buf),np.array(truncated_buf))
-        batch_done = np.append(batch_done,terminated_or_truncated_buf)
-        batch_terminated.append(terminated_buf)
-        batch_truncated.append(truncated_buf)
+        batch_done.append(terminated_or_truncated_buf.tolist())
     
     # update policy using data from batch
             
 env.close()
 
-print(batch_acts)
-print(batch_rews)
-print(batch_done)
-print(batch_terminated)
-print(batch_truncated)
+print(f"Actions ({len(batch_acts)},{len(batch_acts[0])}):\n{batch_acts}")
+print(f"Rewards ({len(batch_rews)},{len(batch_rews[0])}):\n{batch_rews}")
+print(f"Done ({len(batch_done)},{len(batch_done[0])}):\n{batch_done}")
 
 end_time = time.perf_counter()
 duration_minutes = (end_time - start_time) / 60
