@@ -3,7 +3,7 @@ import torch
 import time
 import matplotlib.pyplot as plt
 
-class Policy(torch.nn.Module):
+class ReinforcePolicy(torch.nn.Module):
     def __init__(self, in_dim:int, hidden_dim:int, out_dim:int):
         super().__init__()
         
@@ -33,15 +33,12 @@ class Policy(torch.nn.Module):
         logp = self.get_policy(batch_states).log_prob(batch_acts)
         return -(logp * batch_weights).mean()
     
-
-# HAVE TO CHECK EPISODE LENGTH OVER TIME, IT MIGHT BE GETTING TOO LONG. 
-    # CHECK WHEN THE ENV TRUNCATES
 # TAKES SUPER LONG TO TRAIN. LIKE MAX_ITERS=350 ONLY GOT TO LIKE 270 AFTER AN HOUR. 
     # HOW CAN YOU MAKE IT FASTER??
     # WHEN DOES IT START MAKING SENSE TO USE A GPU?
 
 saved_policy_filename = "policy.pth"
-serious_training_run = False
+serious_training_run = True
 
 torch.manual_seed(27)
 #device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -52,14 +49,12 @@ env = env_headless
 in_dim = env.observation_space.shape[0] # (4,)
 out_dim = env.action_space.n # Discrete action space, (2,) possible actions for CartPole env
 hidden_dim = 32
-policy = Policy(in_dim,hidden_dim,out_dim)
+policy = ReinforcePolicy(in_dim,hidden_dim,out_dim)
 #policy.to(device=device)
 
-max_iters = 350
-batch_size = 100
-lr = 3e-3
-#gamma = 0.96
-#lambda_param = 0.92
+max_iters = 100
+batch_size = 32
+lr = 3e-2
 optimizer = torch.optim.AdamW(policy.parameters(), lr=lr)
 
 start_time = time.perf_counter()
@@ -68,9 +63,10 @@ print("\nstart training...")
 
 # training loop
 avg_reward = []
+avg_len = []
 for batch in range(max_iters):
 
-    batch_acts, batch_states, batch_weights = [], [], []
+    batch_acts, batch_states, batch_weights, batch_lens = [], [], [], []
 
     #env = env_render if batch % 10 == 0 else env_headless
 
@@ -88,15 +84,19 @@ for batch in range(max_iters):
             
             if terminated or truncated:
                 rtgs = policy.rtg(rews_buf)
-                batch_weights.extend(rtgs)  
+                batch_weights.extend(rtgs)
+                batch_lens.append(len(rews_buf))  
                 break
             else:
                 state = next_state
 
     batch_avg_reward = sum(batch_weights)/len(batch_weights)
+    batch_avg_len = sum(batch_lens)/len(batch_lens)
     avg_reward.append(batch_avg_reward) # use to plot later
+    avg_len.append(batch_avg_len)
     if batch % 10 == 0:
         print(f"Batch {batch} avg reward: {batch_avg_reward}")
+        print(f"Batch {batch} avg len: {batch_avg_len}")
     
     surrogate_loss = policy.surrogate_loss(
         torch.as_tensor(batch_acts,dtype=torch.float32),
@@ -124,4 +124,11 @@ plt.xlabel("Batch")
 plt.ylabel("Average Reward")  
 plt.title("Agent Reward")
 plt.show()        
-#plt.savefig('batch_avg_reward.png')
+plt.savefig('batch_avg_reward.png')
+
+plt.plot([i for i in range(1,max_iters+1)], avg_len) 
+plt.xlabel("Batch")  
+plt.ylabel("Average Len")  
+plt.title("Episode Lengths")
+plt.show()  
+plt.savefig('batch_avg_len.png')     
