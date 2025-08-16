@@ -34,6 +34,15 @@ class Policy(torch.nn.Module):
         return -(logp * batch_weights).mean()
     
 
+# HAVE TO CHECK EPISODE LENGTH OVER TIME, IT MIGHT BE GETTING TOO LONG. 
+    # CHECK WHEN THE ENV TRUNCATES
+# TAKES SUPER LONG TO TRAIN. LIKE MAX_ITERS=350 ONLY GOT TO LIKE 270 AFTER AN HOUR. 
+    # HOW CAN YOU MAKE IT FASTER??
+    # WHEN DOES IT START MAKING SENSE TO USE A GPU?
+
+saved_policy_filename = "policy.pth"
+serious_training_run = False
+
 torch.manual_seed(27)
 #device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 env_render = gym.make('CartPole-v1', render_mode="human")
@@ -46,8 +55,8 @@ hidden_dim = 32
 policy = Policy(in_dim,hidden_dim,out_dim)
 #policy.to(device=device)
 
-max_iters = 31 #100
-batch_size = 30 # 50
+max_iters = 350
+batch_size = 100
 lr = 3e-3
 #gamma = 0.96
 #lambda_param = 0.92
@@ -63,7 +72,7 @@ for batch in range(max_iters):
 
     batch_acts, batch_states, batch_weights = [], [], []
 
-    env = env_render if batch % 10 == 0 else env_headless
+    #env = env_render if batch % 10 == 0 else env_headless
 
     for episode in range(batch_size):
         state,info = env.reset()
@@ -106,6 +115,9 @@ end_time = time.perf_counter()
 train_duration = end_time - start_time
 print(f"Training time (mins): {train_duration/60}")
 print(f"Training time (secs): {train_duration}")
+
+if serious_training_run:
+    torch.save(policy.state_dict(),saved_policy_filename)
 
 plt.plot([i for i in range(1,max_iters+1)], avg_reward) 
 plt.xlabel("Batch")  
