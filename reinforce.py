@@ -33,10 +33,6 @@ class ReinforcePolicy(torch.nn.Module):
         logp = self.get_policy(batch_states).log_prob(batch_acts)
         return -(logp * batch_weights).mean()
     
-# TAKES SUPER LONG TO TRAIN. LIKE MAX_ITERS=350 ONLY GOT TO LIKE 270 AFTER AN HOUR. 
-    # HOW CAN YOU MAKE IT FASTER??
-    # WHEN DOES IT START MAKING SENSE TO USE A GPU?
-
 
 if __name__ == "__main__":
     saved_policy_filename = "policy.pth"
