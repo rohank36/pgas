@@ -2,7 +2,7 @@ from reinforce import ReinforcePolicy
 import gymnasium as gym
 import torch
 
-policy_filepath = "reinforce_policy_rtg.pth"
+policy_filepath = "reinforce/reinforce_policy_rtg.pth"
 
 env = gym.make('CartPole-v1', render_mode="human")
 
