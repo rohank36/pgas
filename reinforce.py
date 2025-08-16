@@ -1,8 +1,6 @@
-import gymnasium as gym
-import numpy as np
-from tqdm import tqdm 
-import torch 
 import time
+import gymnasium as gym
+import torch 
 
 class Policy(torch.nn.Module):
     def __init__(self, in_dim:int, hidden_dim:int, out_dim:int):
@@ -41,8 +39,8 @@ class Policy(torch.nn.Module):
 
 torch.manual_seed(27)
 #device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-env = gym.make('CartPole-v1', render_mode="human")
-#env = gym.make('CartPole-v1')
+#env = gym.make('CartPole-v1', render_mode="human")
+env = gym.make('CartPole-v1')
 env_seed = 42
 
 in_dim = env.observation_space.shape[0] # (4,)
@@ -60,8 +58,10 @@ optimizer = torch.optim.AdamW(policy.parameters(), lr=lr)
 
 start_time = time.perf_counter()
 
+print("\nstart training...")
+
 # training loop
-for trajectory in tqdm(range(max_iters)):
+for trajectory in range(max_iters):
 
     batch_acts = []
     batch_states = []
@@ -75,10 +75,10 @@ for trajectory in tqdm(range(max_iters)):
         rews_buf = []
 
         while True:
-            if render:
-                env.render()
+            #if render:
+                #env.render()
 
-            batch_states.append(state)
+            batch_states.append(state.tolist())
             action = policy.get_action(torch.as_tensor(state,dtype=torch.float32))
             batch_acts.append(action)
             next_state,reward,terminated,truncated,_ = env.step(action)
@@ -86,6 +86,7 @@ for trajectory in tqdm(range(max_iters)):
             
             if terminated or truncated:
                 rtgs = policy.rtg(rews_buf)
+                print(rtgs)
                 batch_weights.extend(rtgs)  
                 break
             else:
@@ -98,7 +99,7 @@ for trajectory in tqdm(range(max_iters)):
     # update policy using data from batch
     surrogate_loss = policy.surrogate_loss(
         torch.as_tensor(batch_acts,dtype=torch.float32),
-        torch.from_numpy(batch_states),
+        torch.as_tensor(batch_states,dtype=torch.float32),
         torch.as_tensor(batch_weights,dtype=torch.float32)
         )
     
@@ -108,13 +109,7 @@ for trajectory in tqdm(range(max_iters)):
             
 env.close()
 
-#print(f"Actions ({len(batch_acts)},{len(batch_acts[0])}):\n{batch_acts}")
-#print(f"Rewards ({len(batch_rews)},{len(batch_rews[0])}):\n{batch_rews}")
-#print(f"RTGs ({len(batch_rtgs)},{len(batch_rtgs[0])}):\n{batch_rtgs}")
-#print(f"Done ({len(batch_done)},{len(batch_done[0])}):\n{batch_done}")
-#print(f"Traj1 avg reward: {sum(batch_rtgs[0])/T}")
-#print(f"Traj2 avg reward: {sum(batch_rtgs[1])/T}")
-
 end_time = time.perf_counter()
-duration_minutes = (end_time - start_time) / 60
-print(f"Training time: {duration_minutes}")
+train_duration = end_time - start_time
+print(f"Training time (mins): {train_duration/60}")
+print(f"Training time (secs): {train_duration}")
