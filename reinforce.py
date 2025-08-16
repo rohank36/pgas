@@ -36,7 +36,7 @@ class ReinforcePolicy(torch.nn.Module):
 
 if __name__ == "__main__":
     saved_policy_filename = "policy.pth"
-    serious_training_run = True
+    serious_training_run = False
 
     torch.manual_seed(27)
     #device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
