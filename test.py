@@ -2,12 +2,16 @@ from reinforce import ReinforcePolicy
 import gymnasium as gym
 import torch
 
+policy_filepath = "reinforce_policy_rtg.pth"
+
 env = gym.make('CartPole-v1', render_mode="human")
+
 in_dim = env.observation_space.shape[0] # (4,)
 out_dim = env.action_space.n # Discrete action space, (2,) possible actions for CartPole env
 hidden_dim = 32
 policy = ReinforcePolicy(in_dim,hidden_dim,out_dim)
-policy.load_state_dict(torch.load("policy.pth",weights_only=True))
+
+policy.load_state_dict(torch.load(policy_filepath,weights_only=True))
 
 state,info = env.reset()
 done = False
