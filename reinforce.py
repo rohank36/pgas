@@ -1,6 +1,7 @@
-import time
 import gymnasium as gym
-import torch 
+import torch
+import time
+import matplotlib.pyplot as plt
 
 class Policy(torch.nn.Module):
     def __init__(self, in_dim:int, hidden_dim:int, out_dim:int):
@@ -29,19 +30,15 @@ class Policy(torch.nn.Module):
         return rtg_buf
     
     def surrogate_loss(self,batch_acts,batch_states,batch_weights):
-        #print(f"Batch Acts: {batch_acts.shape}")
-        #print(f"Batch States: {batch_states.shape}")
-        #print(f"Batch Weights: {batch_weights.shape}")
-        
         logp = self.get_policy(batch_states).log_prob(batch_acts)
         return -(logp * batch_weights).mean()
-
+    
 
 torch.manual_seed(27)
 #device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-#env = gym.make('CartPole-v1', render_mode="human")
-env = gym.make('CartPole-v1')
-env_seed = 42
+env_render = gym.make('CartPole-v1', render_mode="human")
+env_headless = gym.make('CartPole-v1')
+env = env_headless
 
 in_dim = env.observation_space.shape[0] # (4,)
 out_dim = env.action_space.n # Discrete action space, (2,) possible actions for CartPole env
@@ -49,9 +46,9 @@ hidden_dim = 32
 policy = Policy(in_dim,hidden_dim,out_dim)
 #policy.to(device=device)
 
-max_iters = 1
-batch_size = 2
-lr = 3e-4
+max_iters = 31 #100
+batch_size = 30 # 50
+lr = 3e-3
 #gamma = 0.96
 #lambda_param = 0.92
 optimizer = torch.optim.AdamW(policy.parameters(), lr=lr)
@@ -61,23 +58,19 @@ start_time = time.perf_counter()
 print("\nstart training...")
 
 # training loop
-for trajectory in range(max_iters):
+avg_reward = []
+for batch in range(max_iters):
 
-    batch_acts = []
-    batch_states = []
-    batch_weights = []
+    batch_acts, batch_states, batch_weights = [], [], []
 
-    render = True
+    env = env_render if batch % 10 == 0 else env_headless
 
-    for batch in range(batch_size):
-        state,info = env.reset(seed=env_seed)
+    for episode in range(batch_size):
+        state,info = env.reset()
         done = False
         rews_buf = []
 
         while True:
-            #if render:
-                #env.render()
-
             batch_states.append(state.tolist())
             action = policy.get_action(torch.as_tensor(state,dtype=torch.float32))
             batch_acts.append(action)
@@ -86,17 +79,16 @@ for trajectory in range(max_iters):
             
             if terminated or truncated:
                 rtgs = policy.rtg(rews_buf)
-                print(rtgs)
                 batch_weights.extend(rtgs)  
                 break
             else:
                 state = next_state
 
-        render = False
-
-    print(f"Batch {batch} avg reward: {sum(batch_weights)/len(batch_weights)}")
+    batch_avg_reward = sum(batch_weights)/len(batch_weights)
+    avg_reward.append(batch_avg_reward) # use to plot later
+    if batch % 10 == 0:
+        print(f"Batch {batch} avg reward: {batch_avg_reward}")
     
-    # update policy using data from batch
     surrogate_loss = policy.surrogate_loss(
         torch.as_tensor(batch_acts,dtype=torch.float32),
         torch.as_tensor(batch_states,dtype=torch.float32),
@@ -107,9 +99,17 @@ for trajectory in range(max_iters):
     surrogate_loss.backward()
     optimizer.step()
             
-env.close()
+env_render.close()
+env_headless.close()
 
 end_time = time.perf_counter()
 train_duration = end_time - start_time
 print(f"Training time (mins): {train_duration/60}")
 print(f"Training time (secs): {train_duration}")
+
+plt.plot([i for i in range(1,max_iters+1)], avg_reward) 
+plt.xlabel("Batch")  
+plt.ylabel("Average Reward")  
+plt.title("Agent Reward")
+plt.show()        
+#plt.savefig('batch_avg_reward.png')
