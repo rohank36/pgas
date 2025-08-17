@@ -82,7 +82,7 @@ if __name__ == "__main__":
     #policy.to(device=device)
 
     gam = 0.99
-    max_iters =  51 #100
+    max_iters =  31 #100
     batch_size = 32 # 32
     policy_lr = 3e-2
     value_lr = 3e-3
@@ -94,7 +94,6 @@ if __name__ == "__main__":
     print("\nstart training...")
 
     # training loop
-    avg_adv = []
     avg_len = []
     batch_value_loss = []
     ev_vals = []
@@ -130,42 +129,49 @@ if __name__ == "__main__":
                 else:
                     state = next_state
 
-        batch_avg_adv = sum(batch_weights)/len(batch_weights)
+       
         batch_avg_len = sum(batch_lens)/len(batch_lens)
-        avg_adv.append(batch_avg_adv) 
         avg_len.append(batch_avg_len)
 
         batch_weights_tensor =  torch.as_tensor(batch_weights,dtype=torch.float32)
         batch_weights_normd = (batch_weights_tensor - batch_weights_tensor.mean())/(batch_weights_tensor.std() + 1e-8)
     
         surrogate_loss = policy.surrogate_loss(
-            torch.as_tensor(batch_acts,dtype=torch.float32),
+            torch.as_tensor(batch_acts,dtype=torch.long),
             torch.as_tensor(batch_states,dtype=torch.float32),
             batch_weights_normd
             )
         
-        value_loss,ev = value.loss_fn(
-            torch.as_tensor(batch_states,dtype=torch.float32),
-            torch.as_tensor(batch_targets,dtype=torch.float32)
-            )
-        
-        batch_value_loss.append(value_loss.item())
-        ev_vals.append(ev)
-
-        if batch % 10 == 0:
-            print(f"Batch {batch} avg adv: {batch_avg_adv}")
-            print(f"Batch {batch} avg len: {batch_avg_len}")
-            print(f"Batch {batch} value loss: {value_loss.item()}")
-            print(f"Batch {batch} ev: {ev}")
-            print("\n")
-
         optimizer_policy.zero_grad()
         surrogate_loss.backward()
         optimizer_policy.step()
+        
+        for epoch in range(epochs):
+            evs_in_epochs = []
+            value_loss_in_epochs = []
+            value_loss,ev = value.loss_fn(
+                torch.as_tensor(batch_states,dtype=torch.float32),
+                torch.as_tensor(batch_targets,dtype=torch.float32)
+                )
+            evs_in_epochs.append(ev)
+            value_loss_in_epochs.append(value_loss.item())
 
-        optimizer_value.zero_grad()
-        value_loss.backward()
-        optimizer_value.step()
+            optimizer_value.zero_grad()
+            value_loss.backward()
+            optimizer_value.step()
+        
+        avg_value_loss_in_epochs = sum(value_loss_in_epochs)/epochs
+        avg_ev_in_epochs = sum(evs_in_epochs)/epochs
+        batch_value_loss.append(avg_value_loss_in_epochs)
+        ev_vals.append(avg_ev_in_epochs)
+
+        if batch % 10 == 0:
+            print(f"Batch {batch} avg len: {batch_avg_len}")
+            print(f"Batch {batch} value loss: {avg_value_loss_in_epochs}")
+            print(f"Batch {batch} ev: {avg_ev_in_epochs}")
+            print("\n")
+
+        
                 
     env_render.close()
     env_headless.close()
@@ -177,13 +183,6 @@ if __name__ == "__main__":
 
     if serious_training_run:
         torch.save(policy.state_dict(),saved_policy_filename)
-
-    plt.plot([i for i in range(1,max_iters+1)], avg_adv) 
-    plt.xlabel("Batch")  
-    plt.ylabel("Average Adv")  
-    plt.title("Agent Adv")
-    plt.savefig('batch_avg_reward.png')
-    plt.show()        
 
     plt.plot([i for i in range(1,max_iters+1)], avg_len) 
     plt.xlabel("Batch")  
