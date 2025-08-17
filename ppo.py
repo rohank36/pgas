@@ -74,12 +74,12 @@ def GAE(value_fn,rewards,states,next_states,lam,gam):
     #print(f"V(s): {v_s.shape}")
     #print(f"V(s+1): {v_next_s.shape}")
 
-    deltas = rewards + gam * v_next_s - v_s 
+    td = rewards + gam * v_next_s - v_s 
     adv = torch.zeros_like(v_s)
     gae = 0.0
 
     for t in reversed(range(len(rewards))):
-        gae = deltas[t] + gam * lam * gae
+        gae = td[t] + gam * lam * gae
         adv[t] = gae
 
     targets = adv + v_s
@@ -111,8 +111,8 @@ if __name__ == "__main__":
     policy = PPOPolicy(in_dim,hidden_dim,out_dim)
     value_fn = ValueFunction(in_dim,hidden_dim,1)
     
-    max_iters = 2 #100
-    batch_size = 4 #32
+    max_iters = 61 #100
+    batch_size = 32
     lr = 3e-2
     gam = 0.96
     lam = 0.92
