@@ -6,7 +6,8 @@ import matplotlib.pyplot as plt
 class PPOPolicy(torch.nn.Module):
     def __init__(self, in_dim:int, hidden_dim:int, out_dim:int):
         super().__init__()
-        
+        self.epsilon = 0.2
+
         self.ffnn = torch.nn.Sequential(
             torch.nn.Linear(in_dim,hidden_dim),
             torch.nn.ReLU(),
@@ -23,18 +24,19 @@ class PPOPolicy(torch.nn.Module):
         act = policy.sample()
         return act.item()
     
-    """
+    
     def rtg(self,rews_buf,gamma):
         rtg_buf = [0]*len(rews_buf)
         for i in reversed(range(len(rtg_buf))):
             rtg_buf[i] = rews_buf[i] + (gamma*rtg_buf[i+1] if i+1 < len(rtg_buf) else 0)
         return rtg_buf
-    """
     
     def surrogate_loss(self,batch_acts,batch_states,batch_weights):
         #print(f"Batch acts: {batch_acts.shape} ")
         #print(f"Batch states: {batch_states.shape} ")
         #print(f"Batch weights: {batch_weights.shape} ")
+
+
 
         logp = self.get_policy(batch_states).log_prob(batch_acts)
         return -(logp * batch_weights).mean()
@@ -64,33 +66,43 @@ class ValueFunction(torch.nn.Module):
 
         return torch.nn.functional.mse_loss(preds,targets)
     
-def GAE(value_fn,rewards,states,next_states,lam,gam):
-    # A_t = TD_t + gam*lam*A_t+1
+def GAE(value_fn,rewards,states,next_states,lam,gam,terminated):
+    # TD_t = rew[t] + gam*V(s_t+1)*(1-done_t) - V(s_t)
+    # A_t = TD_t + gam*lam*A_t+1*(1-done_t)
+
     with torch.no_grad():
         v_s = value_fn.get_values(states)
-        v_next_s = value_fn.get_values(next_states)
+        v_last = torch.tensor(0.0) if terminated else value_fn.get_values(next_states[-1]) # if terminated last value should be 0 else bootstrap
+        v_full = torch.cat([v_s, v_last.unsqueeze(0)], dim=0) # +1
 
-    #print(f"T: {len(rewards)}")
-    #print(f"V(s): {v_s.shape}")
-    #print(f"V(s+1): {v_next_s.shape}")
+    dones = torch.zeros(len(rewards), dtype=torch.float32)
+    if terminated:
+        dones[-1] = 1.0
+    not_done = 1.0 - dones
 
-    td = rewards + gam * v_next_s - v_s 
-    adv = torch.zeros_like(v_s)
+
+    adv = torch.zeros_like(rewards)
     gae = 0.0
 
     for t in reversed(range(len(rewards))):
-        gae = td[t] + gam * lam * gae
+        td = rewards[t] + gam * v_full[t+1] * not_done[t] - v_full[t]
+        gae   = td + gam * lam * not_done[t] * gae
         adv[t] = gae
 
-    targets = adv + v_s
+    targets = adv + v_full[:-1]
 
-    #print(f"advantage type: {type(adv)}")
-    #print(f"advantage type[0]: {type(adv[0])}")
-    #print(adv)
-    #print(f"targets type: {type(targets)}")
-    #print(f"targets type[0]: {type(targets[0])}")
-    #print(targets)
-    #print("\n")
+    """
+    print(f"T: {len(rewards)}")
+    print(f"V(s): {v_s.shape}")
+    print(f"V full: {v_full.shape}")
+    print(f"advantage type: {type(adv)}")
+    print(f"advantage type[0]: {type(adv[0])}")
+    print(adv)
+    print(f"targets type: {type(targets)}")
+    print(f"targets type[0]: {type(targets[0])}")
+    print(targets)
+    print("\n")
+    """
 
     return adv.tolist(),targets.tolist()
 
@@ -111,13 +123,14 @@ if __name__ == "__main__":
     policy = PPOPolicy(in_dim,hidden_dim,out_dim)
     value_fn = ValueFunction(in_dim,hidden_dim,1)
     
-    max_iters = 61 #100
-    batch_size = 32
-    lr = 3e-2
-    gam = 0.96
-    lam = 0.92
-    optimizer_policy = torch.optim.AdamW(policy.parameters(), lr=lr)
-    optimizer_value_fn = torch.optim.AdamW(value_fn.parameters(), lr=lr)
+    max_iters = 100
+    batch_size = 32 #32
+    policy_lr = 3e-4
+    value_lr  = 1e-3
+    gam = 0.99
+    lam = 0.95
+    optimizer_policy = torch.optim.AdamW(policy.parameters(), lr=policy_lr)
+    optimizer_value_fn = torch.optim.AdamW(value_fn.parameters(), lr=value_lr)
 
     start_time = time.perf_counter()
 
@@ -158,10 +171,12 @@ if __name__ == "__main__":
                         states=torch.as_tensor(states_buf,dtype=torch.float32),
                         next_states=torch.as_tensor(next_states_buf,dtype=torch.float32),
                         lam=lam,
-                        gam=gam
+                        gam=gam,
+                        terminated=terminated
                     )
                     batch_weights.extend(advs)
                     batch_targets.extend(targets) 
+                    #batch_targets.extend(rtgs) 
                     batch_lens.append(len(rews_buf))  
                     break
                 else:
@@ -176,10 +191,14 @@ if __name__ == "__main__":
             print(f"Batch {batch} avg adv: {batch_avg_advantage}")
             print(f"Batch {batch} avg len: {batch_avg_len}")
         
+        # normalize batch weights (advantages)
+        batch_weights_tensor = torch.as_tensor(batch_weights,dtype=torch.float32)
+        batch_weights_normd = (batch_weights_tensor - batch_weights_tensor.mean()) / (batch_weights_tensor.std() + 1e-8)
+
         surrogate_loss = policy.surrogate_loss(
-            torch.as_tensor(batch_acts,dtype=torch.float32),
+            torch.as_tensor(batch_acts,dtype=torch.long),
             torch.as_tensor(batch_states,dtype=torch.float32),
-            torch.as_tensor(batch_weights,dtype=torch.float32)
+            batch_weights_normd
             )
         
         value_loss = value_fn.loss_fn(
