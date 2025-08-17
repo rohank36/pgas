@@ -61,11 +61,11 @@ class Value(torch.nn.Module):
             ev = 1 - (torch.var(targets-preds)/torch.var(targets))
         #print(f"ev: {ev}")
 
-        return torch.nn.functional.mse_loss(preds,targets), ev.item()
+        return torch.nn.functional.huber_loss(preds,targets), ev.item()
     
 
 if __name__ == "__main__":
-    saved_policy_filename = "policy.pth"
+    saved_policy_filename = "reinforce_adv_policy.pth"
     serious_training_run = False
 
     torch.manual_seed(27)
@@ -82,7 +82,7 @@ if __name__ == "__main__":
     #policy.to(device=device)
 
     gam = 0.99
-    max_iters =  31 #100
+    max_iters =  71 #100
     batch_size = 32 # 32
     policy_lr = 3e-2
     value_lr = 3e-3
@@ -97,7 +97,7 @@ if __name__ == "__main__":
     avg_len = []
     batch_value_loss = []
     ev_vals = []
-    epochs = 5
+    epochs = 20
     for batch in range(max_iters):
 
         batch_acts, batch_states, batch_weights, batch_lens, batch_targets = [], [], [], [], []
@@ -193,7 +193,7 @@ if __name__ == "__main__":
 
     plt.plot([i for i in range(1,max_iters+1)], batch_value_loss) 
     plt.xlabel("Batch")  
-    plt.ylabel("MSE Loss")  
+    plt.ylabel("Loss")  
     plt.title("Value Function Loss")
     plt.savefig('value_fn_loss.png')     
     plt.show() 
