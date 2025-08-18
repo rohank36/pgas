@@ -52,20 +52,40 @@ class Value(torch.nn.Module):
         preds = self.ffnn(batch_states)
         preds = preds.squeeze(-1)
         
-        #print(f"preds:\n{preds}")
-        #print(f"targets:\n{targets}")
-        #print("\n")
         if torch.var(targets)<1e-8:
             ev = 0
         else:
             ev = 1 - (torch.var(targets-preds)/torch.var(targets))
-        #print(f"ev: {ev}")
-
+ 
         return torch.nn.functional.huber_loss(preds,targets), ev.item()
+
+def GAE(V,rewards,states,last,lam,gam,terminated):
+    with torch.no_grad():
+        v_s = V.get_values(states) # V(s)
+        v_last = torch.tensor(0.0) if terminated else V.get_values(last) # if terminated last value should be 0 else bootstrap
+        v_next = torch.cat((v_s[1:], v_last.unsqueeze(0))) # V(s_t+1)
+
+    dones = torch.zeros(len(rewards), dtype=torch.float32)
+    if terminated:
+        dones[-1] = 1.0
+    not_done = 1.0 - dones
+
+    td = rewards + gam * v_next * not_done - v_s
+    adv = torch.zeros_like(rewards)
+    gae = 0.0
+
+    for t in reversed(range(len(rewards))):
+        gae = td[t] + gam * lam * not_done[t] * gae
+        adv[t] = gae
+
+    targets = adv + v_s
+
+    return adv.tolist(),targets.tolist()
     
 
 if __name__ == "__main__":
-    saved_policy_filename = "reinforce_adv_policy.pth"
+    saved_policy_filename = "reinforce_gae_policy.pth"
+    saved_value_filename = "reinforce_gae_value.pth"
     serious_training_run = False
 
     torch.manual_seed(27)
@@ -82,8 +102,9 @@ if __name__ == "__main__":
     #policy.to(device=device)
 
     gam = 0.99
-    max_iters =  71 #100
-    batch_size = 32 # 32
+    lam = 0.95
+    max_iters = 71
+    batch_size = 32
     policy_lr = 3e-2
     value_lr = 3e-3
     optimizer_policy = torch.optim.AdamW(policy.parameters(), lr=policy_lr)
@@ -119,17 +140,33 @@ if __name__ == "__main__":
                 rews_buf.append(reward)
                 
                 if terminated or truncated:
+                    """
+                    # for adv = rtg - V(s)
                     rtgs = policy.rtg(rews_buf,gam)
                     baseline = value.get_values(torch.as_tensor(states_buf,dtype=torch.float32))
                     advantage = (torch.as_tensor(rtgs,dtype=torch.float32) - baseline)
                     batch_weights.extend(advantage.tolist())
                     batch_targets.extend(rtgs)
+                    """
+                    # for GAE
+                    advs,targets = GAE(
+                        value,
+                        torch.as_tensor(rews_buf,dtype=torch.float32),
+                        torch.as_tensor(states_buf,dtype=torch.float32),
+                        torch.as_tensor(next_state,dtype=torch.float32),
+                        lam,
+                        gam,
+                        terminated
+                    )
+                    batch_weights.extend(advs)
+                    batch_targets.extend(targets)
+                    ###
+
                     batch_lens.append(len(rews_buf))  
                     break
                 else:
                     state = next_state
 
-       
         batch_avg_len = sum(batch_lens)/len(batch_lens)
         avg_len.append(batch_avg_len)
 
@@ -171,8 +208,7 @@ if __name__ == "__main__":
             print(f"Batch {batch} ev: {avg_ev_in_epochs}")
             print("\n")
 
-        
-                
+
     env_render.close()
     env_headless.close()
 
@@ -183,24 +219,25 @@ if __name__ == "__main__":
 
     if serious_training_run:
         torch.save(policy.state_dict(),saved_policy_filename)
+        torch.save(value.state_dict(),saved_value_filename)
 
     plt.plot([i for i in range(1,max_iters+1)], avg_len) 
     plt.xlabel("Batch")  
     plt.ylabel("Average Len")  
     plt.title("Episode Lengths")
-    plt.savefig('batch_avg_len.png')     
+    plt.savefig('batch_avg_len_gae.png')     
     plt.show()  
 
     plt.plot([i for i in range(1,max_iters+1)], batch_value_loss) 
     plt.xlabel("Batch")  
     plt.ylabel("Loss")  
     plt.title("Value Function Loss")
-    plt.savefig('value_fn_loss.png')     
+    plt.savefig('value_fn_loss_gae.png')     
     plt.show() 
 
     plt.plot([i for i in range(1,(max_iters+1))], ev_vals) 
     plt.xlabel("Batch")  
     plt.ylabel("EV")  
     plt.title("Explained Variance")
-    plt.savefig('ev.png')     
+    plt.savefig('ev_gae.png')     
     plt.show() 

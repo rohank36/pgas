@@ -25,10 +25,10 @@ class PPOPolicy(torch.nn.Module):
         return act.item()
     
     
-    def rtg(self,rews_buf,gamma):
+    def rtg(self,rews_buf):
         rtg_buf = [0]*len(rews_buf)
         for i in reversed(range(len(rtg_buf))):
-            rtg_buf[i] = rews_buf[i] + (gamma*rtg_buf[i+1] if i+1 < len(rtg_buf) else 0)
+            rtg_buf[i] = rews_buf[i] + (rtg_buf[i+1] if i+1 < len(rtg_buf) else 0)
         return rtg_buf
     
     def surrogate_loss(self,batch_acts,batch_states,batch_weights):
@@ -126,7 +126,7 @@ if __name__ == "__main__":
     max_iters = 100
     batch_size = 32 #32
     policy_lr = 3e-4
-    value_lr  = 1e-3
+    value_lr  = 3e-3
     gam = 0.99
     lam = 0.95
     optimizer_policy = torch.optim.AdamW(policy.parameters(), lr=policy_lr)
@@ -164,7 +164,8 @@ if __name__ == "__main__":
                 rews_buf.append(reward)
                 
                 if terminated or truncated:
-                    #rtgs = policy.rtg(rews_buf,gam)
+                    rtgs = policy.rtg(rews_buf)
+                    """
                     advs,targets = GAE(
                         value_fn=value_fn,
                         rewards = torch.as_tensor(rews_buf, dtype=torch.float32),
@@ -174,9 +175,12 @@ if __name__ == "__main__":
                         gam=gam,
                         terminated=terminated
                     )
-                    batch_weights.extend(advs)
-                    batch_targets.extend(targets) 
-                    #batch_targets.extend(rtgs) 
+                    """
+                    batch_weights.extend(rtgs)
+                    #batch_weights.extend((torch.as_tensor(rtgs,dtype=torch.float32) - value_fn.get_values(torch.as_tensor(states_buf,dtype=torch.float32))).tolist())
+                    #batch_weights.extend(advs)
+                    #batch_targets.extend(targets) 
+                    batch_targets.extend(rtgs) 
                     batch_lens.append(len(rews_buf))  
                     break
                 else:
@@ -192,13 +196,14 @@ if __name__ == "__main__":
             print(f"Batch {batch} avg len: {batch_avg_len}")
         
         # normalize batch weights (advantages)
-        batch_weights_tensor = torch.as_tensor(batch_weights,dtype=torch.float32)
-        batch_weights_normd = (batch_weights_tensor - batch_weights_tensor.mean()) / (batch_weights_tensor.std() + 1e-8)
+        #batch_weights_tensor = torch.as_tensor(batch_weights,dtype=torch.float32)
+        #batch_weights_normd = (batch_weights_tensor - batch_weights_tensor.mean()) / (batch_weights_tensor.std() + 1e-8)
 
         surrogate_loss = policy.surrogate_loss(
             torch.as_tensor(batch_acts,dtype=torch.long),
             torch.as_tensor(batch_states,dtype=torch.float32),
-            batch_weights_normd
+            torch.as_tensor(batch_weights,dtype=torch.float32)
+            #batch_weights_normd
             )
         
         value_loss = value_fn.loss_fn(
