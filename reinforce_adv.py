@@ -85,7 +85,6 @@ def GAE(V,rewards,states,last,lam,gam,terminated):
 
 if __name__ == "__main__":
     saved_policy_filename = "reinforce_gae_policy.pth"
-    saved_value_filename = "reinforce_gae_value.pth"
     serious_training_run = False
 
     torch.manual_seed(27)
@@ -219,7 +218,6 @@ if __name__ == "__main__":
 
     if serious_training_run:
         torch.save(policy.state_dict(),saved_policy_filename)
-        torch.save(value.state_dict(),saved_value_filename)
 
     plt.plot([i for i in range(1,max_iters+1)], avg_len) 
     plt.xlabel("Batch")  
