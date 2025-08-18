@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 class Policy(torch.nn.Module):
     def __init__(self, in_dim:int, hidden_dim:int, out_dim:int):
         super().__init__()
-        
+
         self.ffnn = torch.nn.Sequential(
             torch.nn.Linear(in_dim,hidden_dim),
             torch.nn.ReLU(),
@@ -29,9 +29,11 @@ class Policy(torch.nn.Module):
             rtg_buf[i] = rews_buf[i] + (gam*rtg_buf[i+1] if i+1 < len(rtg_buf) else 0)
         return rtg_buf
     
-    def surrogate_loss(self,batch_acts,batch_states,batch_weights):
+    def surrogate_loss(self,batch_acts,batch_states,batch_weights,old_logp,epsilon=0.2):
         logp = self.get_policy(batch_states).log_prob(batch_acts)
-        return -(logp * batch_weights).mean()
+        ratio = torch.exp(logp - old_logp)
+        L_clip = torch.min(ratio*batch_weights, torch.clamp(ratio,1-epsilon,1+epsilon)*batch_weights).mean()
+        return -L_clip
     
 
 class Value(torch.nn.Module):
@@ -100,11 +102,12 @@ if __name__ == "__main__":
     value = Value(in_dim,hidden_dim,1)
     #policy.to(device=device)
 
+    # trg time ~= 30 mins with these params
     gam = 0.99
     lam = 0.95
-    max_iters = 71
-    batch_size = 32
-    policy_lr = 3e-2
+    max_iters = 250
+    batch_size = 64
+    policy_lr = 3e-4
     value_lr = 3e-3
     optimizer_policy = torch.optim.AdamW(policy.parameters(), lr=policy_lr)
     optimizer_value = torch.optim.AdamW(value.parameters(), lr=value_lr, weight_decay=0.0)
@@ -117,7 +120,7 @@ if __name__ == "__main__":
     avg_len = []
     batch_value_loss = []
     ev_vals = []
-    epochs = 20
+    epochs = 10
     for batch in range(max_iters):
 
         batch_acts, batch_states, batch_weights, batch_lens, batch_targets = [], [], [], [], []
@@ -171,16 +174,25 @@ if __name__ == "__main__":
 
         batch_weights_tensor =  torch.as_tensor(batch_weights,dtype=torch.float32)
         batch_weights_normd = (batch_weights_tensor - batch_weights_tensor.mean())/(batch_weights_tensor.std() + 1e-8)
-    
-        surrogate_loss = policy.surrogate_loss(
-            torch.as_tensor(batch_acts,dtype=torch.long),
-            torch.as_tensor(batch_states,dtype=torch.float32),
-            batch_weights_normd
-            )
+
+        batch_states_tensor = torch.as_tensor(batch_states,dtype=torch.float32)
+        batch_acts_tensor = torch.as_tensor(batch_acts,dtype=torch.long)
+
+        with torch.no_grad():
+            old_logp = policy.get_policy(batch_states_tensor).log_prob(batch_acts_tensor)
+        old_logp = old_logp.detach()
         
-        optimizer_policy.zero_grad()
-        surrogate_loss.backward()
-        optimizer_policy.step()
+        for epoch in range(epochs):
+            surrogate_loss = policy.surrogate_loss(
+                batch_acts_tensor,
+                batch_states_tensor,
+                batch_weights_normd,
+                old_logp
+                )
+        
+            optimizer_policy.zero_grad()
+            surrogate_loss.backward()
+            optimizer_policy.step()
         
         for epoch in range(epochs):
             evs_in_epochs = []
@@ -223,19 +235,19 @@ if __name__ == "__main__":
     plt.xlabel("Batch")  
     plt.ylabel("Average Len")  
     plt.title("Episode Lengths")
-    plt.savefig('batch_avg_len_gae.png')     
+    plt.savefig('batch_avg_len_ppo_gae.png')     
     plt.show()  
 
     plt.plot([i for i in range(1,max_iters+1)], batch_value_loss) 
     plt.xlabel("Batch")  
     plt.ylabel("Loss")  
     plt.title("Value Function Loss")
-    plt.savefig('value_fn_loss_gae.png')     
+    plt.savefig('value_fn_loss_ppo_gae.png')     
     plt.show() 
 
     plt.plot([i for i in range(1,(max_iters+1))], ev_vals) 
     plt.xlabel("Batch")  
     plt.ylabel("EV")  
     plt.title("Explained Variance")
-    plt.savefig('ev_gae.png')     
+    plt.savefig('ev_ppo_gae.png')     
     plt.show() 
